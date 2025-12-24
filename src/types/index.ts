@@ -156,6 +156,8 @@ export interface CreateMatchRequest {
   is_trump_match?: boolean;
   court_number?: number | null;
   scheduled_time?: string;
+  assigned_umpire_id?: string;
+  league_group_id: string;
 }
 
 export interface UpdateMatchScoreRequest {

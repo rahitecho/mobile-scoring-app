@@ -3,34 +3,52 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    "./node_modules/@3rdshot/shared-packages/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
       colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
         primary: {
-          50: 'hsl(142 76% 95%)',
-          100: 'hsl(142 76% 90%)',
-          200: 'hsl(142 76% 80%)',
-          300: 'hsl(142 76% 70%)',
-          400: 'hsl(142 76% 60%)',
-          500: 'hsl(142 45% 35%)',
-          600: 'hsl(142 45% 30%)',
-          700: 'hsl(142 45% 25%)',
-          800: 'hsl(142 45% 20%)',
-          900: 'hsl(142 45% 15%)',
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
         },
         secondary: {
-          50: 'hsl(210 40% 98%)',
-          100: 'hsl(210 40% 96%)',
-          200: 'hsl(210 40% 92%)',
-          300: 'hsl(210 40% 85%)',
-          400: 'hsl(210 40% 75%)',
-          500: 'hsl(210 40% 60%)',
-          600: 'hsl(210 40% 50%)',
-          700: 'hsl(210 40% 40%)',
-          800: 'hsl(210 40% 30%)',
-          900: 'hsl(210 40% 20%)',
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
         },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui"],
       },
     },
   },
