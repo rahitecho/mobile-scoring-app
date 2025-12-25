@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, X } from 'lucide-react';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
+import { ArrowLeft, X, Play } from 'lucide-react';
 import { useGetMatchQuery, useUpdateMatchMutation } from '@/store/api';
 import type { UpdateMatchScoreRequest } from '@/types';
 
+interface LocationState {
+  leagueGroupId: string;
+}
 const ModernScoringPage = () => {
   const { matchId, leagueId } = useParams<{
     matchId: string;
     leagueId: string;
   }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const state = location.state as LocationState;
 
   // RTK Query hooks
   const {
@@ -20,6 +25,8 @@ const ModernScoringPage = () => {
     skip: !matchId,
   });
   const [updateMatch, { isLoading: saving }] = useUpdateMatchMutation();
+
+  const leagueGroupId = state?.leagueGroupId || match?.league_group_id;
 
   // Game and set scores
   const [team1Games, setTeam1Games] = useState<number[]>([0, 0, 0]);
@@ -35,9 +42,24 @@ const ModernScoringPage = () => {
   // Match completion state
   const [showCompletionPopup, setShowCompletionPopup] = useState(false);
 
+  // Match status state
+  const [matchStatus, setMatchStatus] = useState<
+    'pending' | 'in_progress' | 'completed'
+  >('pending');
+
+  // Number of sets state (1, 3, or 5)
+  const [numberOfSets, setNumberOfSets] = useState<1 | 3 | 5>(3);
+
+  // Auto-save state
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [userMadeChanges, setUserMadeChanges] = useState(false);
+
   // Initialize scores when match data is loaded
   useEffect(() => {
     if (match) {
+      // Set match status
+      setMatchStatus(match.status);
+
       const games1 = [
         match.team1_game1 || 0,
         match.team1_game2 || 0,
@@ -54,18 +76,36 @@ const ModernScoringPage = () => {
       setTeam1Sets(match.team1_score || 0);
       setTeam2Sets(match.team2_score || 0);
 
-      // Determine current set based on scores
+      // Determine current set based on scores and number of sets
       let currentSetIndex = 0;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < numberOfSets; i++) {
         if (games1[i] === 0 && games2[i] === 0) {
           currentSetIndex = i;
           break;
         }
-        if (i === 2) currentSetIndex = 2;
+        if (i === numberOfSets - 1) currentSetIndex = numberOfSets - 1;
       }
       setCurrentSet(currentSetIndex);
     }
-  }, [match]);
+  }, [match, numberOfSets]);
+
+  // Start match function
+  const startMatch = async () => {
+    if (!match) return;
+
+    try {
+      const updateData: UpdateMatchScoreRequest = {
+        id: match.id,
+        status: 'in_progress',
+        league_group_id: leagueGroupId,
+      };
+
+      await updateMatch(updateData).unwrap();
+      setMatchStatus('in_progress');
+    } catch (err) {
+      console.error('Failed to start match:', err);
+    }
+  };
 
   const flipCard = async (team: 1 | 2, increase: boolean) => {
     if (team === 1) {
@@ -83,13 +123,21 @@ const ModernScoringPage = () => {
       if (increase) {
         setTeam1Games((prev) => {
           const newGames = [...prev];
+          const oldValue = newGames[currentSet];
           newGames[currentSet] = Math.min(newGames[currentSet] + 1, 99);
+          if (newGames[currentSet] !== oldValue) {
+            setUserMadeChanges(true);
+          }
           return newGames;
         });
       } else {
         setTeam1Games((prev) => {
           const newGames = [...prev];
+          const oldValue = newGames[currentSet];
           newGames[currentSet] = Math.max(newGames[currentSet] - 1, 0);
+          if (newGames[currentSet] !== oldValue) {
+            setUserMadeChanges(true);
+          }
           return newGames;
         });
       }
@@ -97,13 +145,21 @@ const ModernScoringPage = () => {
       if (increase) {
         setTeam2Games((prev) => {
           const newGames = [...prev];
+          const oldValue = newGames[currentSet];
           newGames[currentSet] = Math.min(newGames[currentSet] + 1, 99);
+          if (newGames[currentSet] !== oldValue) {
+            setUserMadeChanges(true);
+          }
           return newGames;
         });
       } else {
         setTeam2Games((prev) => {
           const newGames = [...prev];
+          const oldValue = newGames[currentSet];
           newGames[currentSet] = Math.max(newGames[currentSet] - 1, 0);
+          if (newGames[currentSet] !== oldValue) {
+            setUserMadeChanges(true);
+          }
           return newGames;
         });
       }
@@ -113,7 +169,9 @@ const ModernScoringPage = () => {
   const calculateSets = (games1: number[], games2: number[]) => {
     let sets1 = 0,
       sets2 = 0;
-    for (let i = 0; i < 3; i++) {
+    const maxSets = numberOfSets === 1 ? 1 : numberOfSets === 3 ? 3 : 5;
+
+    for (let i = 0; i < maxSets; i++) {
       const team1Games = games1[i];
       const team2Games = games2[i];
 
@@ -150,12 +208,55 @@ const ModernScoringPage = () => {
     setTeam2Sets(sets2);
   }, [team1Games, team2Games]);
 
+  // Auto-save scores when they change (with debounce)
+  useEffect(() => {
+    if (!match || matchStatus === 'pending' || !userMadeChanges) return;
+
+    const timeoutId = setTimeout(() => {
+      autoSaveMatch();
+      setUserMadeChanges(false); // Reset flag after saving
+    }, 1000); // 1 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [team1Games, team2Games, userMadeChanges]);
+
+  const autoSaveMatch = async () => {
+    if (!match) return;
+
+    try {
+      setAutoSaving(true);
+
+      const updateData: UpdateMatchScoreRequest = {
+        id: match.id,
+        status: 'in_progress', // Always keep as in_progress for auto-save
+        // Do NOT update set scores in auto-save - only game scores
+        team1_game1: team1Games[0] || undefined,
+        team1_game2: team1Games[1] || undefined,
+        team1_game3: team1Games[2] || undefined,
+        team2_game1: team2Games[0] || undefined,
+        team2_game2: team2Games[1] || undefined,
+        team2_game3: team2Games[2] || undefined,
+        league_group_id: leagueGroupId,
+      };
+
+      await updateMatch(updateData).unwrap();
+
+      // Only update status to in_progress, never complete automatically
+      setMatchStatus('in_progress');
+    } catch (err) {
+      console.error('Failed to auto-save match:', err);
+    } finally {
+      setAutoSaving(false);
+    }
+  };
+
   const saveMatch = async () => {
     if (!match) return;
 
     try {
       const { sets1, sets2 } = calculateSets(team1Games, team2Games);
-      const isCompleted = sets1 >= 2 || sets2 >= 2;
+      const setsToWin = numberOfSets === 1 ? 1 : numberOfSets === 3 ? 2 : 3;
+      const isCompleted = sets1 >= setsToWin || sets2 >= setsToWin;
 
       const updateData: UpdateMatchScoreRequest = {
         id: match.id,
@@ -169,15 +270,19 @@ const ModernScoringPage = () => {
         team2_game2: team2Games[1] || undefined,
         team2_game3: team2Games[2] || undefined,
         completed_at: isCompleted ? new Date().toISOString() : undefined,
+        league_group_id: leagueGroupId,
       };
 
       await updateMatch(updateData).unwrap();
 
       if (isCompleted) {
+        setMatchStatus('completed');
         setShowCompletionPopup(true);
         // setTimeout(() => {
         //   navigate(`/league/${leagueId}/matches`)
         // }, 2000)
+      } else {
+        setMatchStatus('in_progress');
       }
     } catch (err) {
       console.error('Failed to save match:', err);
@@ -244,13 +349,21 @@ const ModernScoringPage = () => {
           <h1 className='text-lg font-medium'>{match.league_name}</h1>
           <p className='text-sm text-gray-400'>{match.category_name}</p>
         </div>
-        <button
-          onClick={saveMatch}
-          disabled={saving}
-          className='px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50'
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </button>
+        <div className='flex items-center gap-2'>
+          {autoSaving && (
+            <div className='flex items-center text-xs text-green-400'>
+              <div className='animate-spin w-3 h-3 border border-green-400 border-t-transparent rounded-full mr-1'></div>
+              Auto-saving...
+            </div>
+          )}
+          <button
+            onClick={saveMatch}
+            disabled={saving}
+            className='px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm disabled:opacity-50'
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
       </div>
 
       {/* Main Scoring Area */}
@@ -261,152 +374,202 @@ const ModernScoringPage = () => {
             <h2 className='text-2xl font-light'>{team1Name}</h2>
             <p className='text-sm text-gray-400 mt-1'>{team1Players}</p>
           </div>
+
+          {/* Start Match Button and Set Selection (only when pending) */}
+          {matchStatus === 'pending' && (
+            <div className='flex flex-col items-center'>
+              <div className='text-gray-400 text-lg font-medium mb-4'>VS</div>
+
+              {/* Number of Sets Selection */}
+              <div className='mb-4'>
+                <p className='text-sm text-gray-400 mb-2 text-center'>
+                  Number of Sets
+                </p>
+                <div className='flex gap-2'>
+                  {[1, 3, 5].map((sets) => (
+                    <button
+                      key={sets}
+                      onClick={() => setNumberOfSets(sets as 1 | 3 | 5)}
+                      className={`px-4 py-2 rounded-lg border transition-colors ${
+                        numberOfSets === sets
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-gray-600 text-gray-300 hover:border-gray-500'
+                      }`}
+                    >
+                      {sets} Set{sets > 1 ? 's' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={startMatch}
+                disabled={saving}
+                className='flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors'
+              >
+                <Play className='h-5 w-5 mr-2' />
+                Start Match
+              </button>
+            </div>
+          )}
+
           <div className='text-right max-w-[40%]'>
             <h2 className='text-2xl font-light'>{team2Name}</h2>
             <p className='text-sm text-gray-400 mt-1'>{team2Players}</p>
           </div>
         </div>
 
-        {/* Score Cards */}
-        <div className='flex items-center justify-center gap-8 mb-8'>
-          {/* Team 1 Score Card */}
-          <div className='relative'>
-            <div
-              className={`w-32 h-48 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center cursor-pointer transform transition-transform duration-300 ${
-                team1Flipping ? 'rotateX-180' : ''
-              }`}
-              style={{
-                transformStyle: 'preserve-3d',
-                transform: team1Flipping ? 'rotateX(180deg)' : 'rotateX(0deg)',
-              }}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                const rect = e.currentTarget.getBoundingClientRect();
-                const touchY = e.touches[0].clientY - rect.top;
-                const isTopHalf = touchY < rect.height / 2;
-                flipCard(1, !isTopHalf);
-              }}
-            >
-              <div className='text-6xl font-light'>
-                {team1Games[currentSet]}
-              </div>
-              {/* Divider line */}
-              <div className='absolute top-1/2 left-4 right-4 h-px bg-gray-600'></div>
-            </div>
-          </div>
-
-          {/* Game Score Boxes */}
-          <div className='flex flex-col gap-4'>
-            {[0, 1, 2].map((gameIndex) => (
-              <div key={gameIndex} className='flex items-center gap-3'>
-                <div className='w-12 h-12 bg-gray-800 rounded border border-gray-600 flex items-center justify-center'>
-                  <span className='text-lg font-medium'>
-                    {team1Games[gameIndex]}
-                  </span>
-                </div>
-                <div className='w-8 h-8 flex items-center justify-center'>
-                  <div className='w-2 h-2 bg-gray-600 rounded-full'></div>
-                  <div className='w-2 h-2 bg-gray-600 rounded-full ml-1'></div>
-                </div>
-                <div className='w-12 h-12 bg-gray-800 rounded border border-gray-600 flex items-center justify-center'>
-                  <span className='text-lg font-medium'>
-                    {team2Games[gameIndex]}
-                  </span>
+        {/* Score Cards - Only show when match is started */}
+        {matchStatus !== 'pending' && (
+          <>
+            <div className='flex items-center justify-center gap-8 mb-8'>
+              {/* Team 1 Score Card */}
+              <div className='relative'>
+                <div
+                  className={`w-32 h-48 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center cursor-pointer transform transition-transform duration-300 ${
+                    team1Flipping ? 'rotateX-180' : ''
+                  }`}
+                  style={{
+                    transformStyle: 'preserve-3d',
+                    transform: team1Flipping
+                      ? 'rotateX(180deg)'
+                      : 'rotateX(0deg)',
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const touchY = e.touches[0].clientY - rect.top;
+                    const isTopHalf = touchY < rect.height / 2;
+                    flipCard(1, !isTopHalf);
+                  }}
+                >
+                  <div className='text-6xl font-light'>
+                    {team1Games[currentSet]}
+                  </div>
+                  {/* Divider line */}
+                  <div className='absolute top-1/2 left-4 right-4 h-px bg-gray-600'></div>
                 </div>
               </div>
-            ))}
 
-            {/* Set Score Indicators */}
-            <div className='flex justify-center gap-8 mt-4'>
-              <div className='flex gap-1'>
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className={`w-3 h-3 rounded-full ${
-                      i < team1Sets ? 'bg-orange-500' : 'bg-gray-600'
-                    }`}
-                  ></div>
+              {/* Game Score Boxes */}
+              <div className='flex flex-col gap-4'>
+                {Array.from({ length: numberOfSets }, (_, gameIndex) => (
+                  <div key={gameIndex} className='flex items-center gap-3'>
+                    <div className='w-12 h-12 bg-gray-800 rounded border border-gray-600 flex items-center justify-center'>
+                      <span className='text-lg font-medium'>
+                        {team1Games[gameIndex]}
+                      </span>
+                    </div>
+                    <div className='w-8 h-8 flex items-center justify-center'>
+                      <div className='w-2 h-2 bg-gray-600 rounded-full'></div>
+                      <div className='w-2 h-2 bg-gray-600 rounded-full ml-1'></div>
+                    </div>
+                    <div className='w-12 h-12 bg-gray-800 rounded border border-gray-600 flex items-center justify-center'>
+                      <span className='text-lg font-medium'>
+                        {team2Games[gameIndex]}
+                      </span>
+                    </div>
+                  </div>
                 ))}
+
+                {/* Set Score Indicators */}
+                <div className='flex justify-center gap-8 mt-4'>
+                  <div className='flex gap-1'>
+                    {Array.from({ length: numberOfSets }, (_, i) => (
+                      <div
+                        key={i}
+                        className={`w-3 h-3 rounded-full ${
+                          i < team1Sets ? 'bg-orange-500' : 'bg-gray-600'
+                        }`}
+                      ></div>
+                    ))}
+                  </div>
+                  <div className='flex gap-1'>
+                    {Array.from({ length: numberOfSets }, (_, i) => (
+                      <div
+                        key={i}
+                        className={`w-3 h-3 rounded-full ${
+                          i < team2Sets ? 'bg-orange-500' : 'bg-gray-600'
+                        }`}
+                      ></div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className='flex gap-1'>
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className={`w-3 h-3 rounded-full ${
-                      i < team2Sets ? 'bg-orange-500' : 'bg-gray-600'
-                    }`}
-                  ></div>
-                ))}
+
+              {/* Team 2 Score Card */}
+              <div className='relative'>
+                <div
+                  className={`w-32 h-48 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center cursor-pointer transform transition-transform duration-300 ${
+                    team2Flipping ? 'rotateX-180' : ''
+                  }`}
+                  style={{
+                    transformStyle: 'preserve-3d',
+                    transform: team2Flipping
+                      ? 'rotateX(180deg)'
+                      : 'rotateX(0deg)',
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const touchY = e.touches[0].clientY - rect.top;
+                    const isTopHalf = touchY < rect.height / 2;
+                    flipCard(2, !isTopHalf);
+                  }}
+                >
+                  <div className='text-6xl font-light'>
+                    {team2Games[currentSet]}
+                  </div>
+                  {/* Divider line */}
+                  <div className='absolute top-1/2 left-4 right-4 h-px bg-gray-600'></div>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Team 2 Score Card */}
-          <div className='relative'>
-            <div
-              className={`w-32 h-48 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center cursor-pointer transform transition-transform duration-300 ${
-                team2Flipping ? 'rotateX-180' : ''
-              }`}
-              style={{
-                transformStyle: 'preserve-3d',
-                transform: team2Flipping ? 'rotateX(180deg)' : 'rotateX(0deg)',
-              }}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                const rect = e.currentTarget.getBoundingClientRect();
-                const touchY = e.touches[0].clientY - rect.top;
-                const isTopHalf = touchY < rect.height / 2;
-                flipCard(2, !isTopHalf);
-              }}
-            >
-              <div className='text-6xl font-light'>
-                {team2Games[currentSet]}
+            {/* Current Set Indicator */}
+            <div className='text-center mb-8'>
+              <div className='inline-flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-full'>
+                <span className='text-sm text-gray-400'>
+                  Set {currentSet + 1}
+                </span>
               </div>
-              {/* Divider line */}
-              <div className='absolute top-1/2 left-4 right-4 h-px bg-gray-600'></div>
             </div>
-          </div>
-        </div>
 
-        {/* Current Set Indicator */}
-        <div className='text-center mb-8'>
-          <div className='inline-flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-full'>
-            <span className='text-sm text-gray-400'>Set {currentSet + 1}</span>
-          </div>
-        </div>
+            {/* Set Navigation */}
+            <div className='flex justify-center gap-4'>
+              {Array.from({ length: numberOfSets }, (_, setIndex) => (
+                <button
+                  key={setIndex}
+                  onClick={() => setCurrentSet(setIndex)}
+                  className={`w-12 h-12 rounded-full border-2 flex items-center justify-center ${
+                    currentSet === setIndex
+                      ? 'border-orange-500 bg-orange-500 text-black'
+                      : 'border-gray-600 text-gray-400'
+                  }`}
+                >
+                  {setIndex + 1}
+                </button>
+              ))}
+            </div>
 
-        {/* Set Navigation */}
-        <div className='flex justify-center gap-4'>
-          {[0, 1, 2].map((setIndex) => (
-            <button
-              key={setIndex}
-              onClick={() => setCurrentSet(setIndex)}
-              className={`w-12 h-12 rounded-full border-2 flex items-center justify-center ${
-                currentSet === setIndex
-                  ? 'border-orange-500 bg-orange-500 text-black'
-                  : 'border-gray-600 text-gray-400'
-              }`}
-            >
-              {setIndex + 1}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Bottom Controls */}
-      <div className='p-6'>
-        <div className='flex justify-center'>
-          <button
-            onClick={() => {
-              setTeam1Games([0, 0, 0]);
-              setTeam2Games([0, 0, 0]);
-              setCurrentSet(0);
-            }}
-            className='w-16 h-16 bg-gray-800 border border-gray-600 rounded-full flex items-center justify-center'
-          >
-            <X className='h-6 w-6 text-gray-400' />
-          </button>
-        </div>
+            {/* Bottom Controls */}
+            <div className='p-6'>
+              <div className='flex justify-center'>
+                <button
+                  onClick={() => {
+                    setTeam1Games([0, 0, 0]);
+                    setTeam2Games([0, 0, 0]);
+                    setCurrentSet(0);
+                    setUserMadeChanges(true);
+                  }}
+                  className='w-16 h-16 bg-gray-800 border border-gray-600 rounded-full flex items-center justify-center'
+                >
+                  <X className='h-6 w-6 text-gray-400' />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Match Status */}

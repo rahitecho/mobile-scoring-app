@@ -102,7 +102,11 @@ const PlayerSelectionPage = () => {
       const result = await createMatch(matchData).unwrap();
 
       // Navigate directly to scoring page
-      navigate(`/league/${leagueId}/match/${result.id}/score`);
+      navigate(`/league/${leagueId}/match/${result.id}/score`, {
+        state: {
+          leagueGroupId: state.leagueGroupId,
+        },
+      });
     } catch (error) {
       console.error('Error creating match:', error);
       // You could add error handling here with a toast notification

@@ -126,6 +126,7 @@ export interface MatchWithDetails extends Match {
   // League details
   league_name?: string;
   category_name?: string;
+  league_group_id?: string;
 
   // Team details
   team1_name?: string;
@@ -172,4 +173,5 @@ export interface UpdateMatchScoreRequest {
   team2_game2?: number;
   team2_game3?: number;
   completed_at?: string;
+  league_group_id?: string;
 }

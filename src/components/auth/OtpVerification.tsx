@@ -145,7 +145,7 @@ const OtpVerification = ({
                 {Array.from({ length: 6 }).map((_, index) => (
                   <Input
                     key={index}
-                    type='text'
+                    type='number'
                     value={otp[index] || ''}
                     onChange={(e) => {
                       const digit = e.target.value.replace(/\D/g, '').slice(-1);
@@ -156,20 +156,27 @@ const OtpVerification = ({
 
                       // Auto-focus next input
                       if (digit && index < 5) {
-                        const nextInput = document.querySelector(`input[data-index="${index + 1}"]`) as HTMLInputElement;
+                        const nextInput = document.querySelector(
+                          `input[data-index="${index + 1}"]`
+                        ) as HTMLInputElement;
                         nextInput?.focus();
                       }
                     }}
                     onKeyDown={(e) => {
                       // Handle backspace to move to previous input
                       if (e.key === 'Backspace' && !otp[index] && index > 0) {
-                        const prevInput = document.querySelector(`input[data-index="${index - 1}"]`) as HTMLInputElement;
+                        const prevInput = document.querySelector(
+                          `input[data-index="${index - 1}"]`
+                        ) as HTMLInputElement;
                         prevInput?.focus();
                       }
                     }}
                     onPaste={(e) => {
                       e.preventDefault();
-                      const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+                      const pastedData = e.clipboardData
+                        .getData('text')
+                        .replace(/\D/g, '')
+                        .slice(0, 6);
                       setOtp(pastedData);
                     }}
                     maxLength={1}
@@ -225,11 +232,7 @@ const OtpVerification = ({
               </p>
             )}
 
-            <Button
-              variant='ghost'
-              onClick={onBack}
-              className='w-full'
-            >
+            <Button variant='ghost' onClick={onBack} className='w-full'>
               <ArrowLeft className='mr-2 h-4 w-4' />
               Change Phone Number
             </Button>

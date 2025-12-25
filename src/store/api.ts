@@ -497,7 +497,7 @@ export const api = createApi({
           court_number: matchData.court_number || null,
           scheduled_time: matchData.scheduled_time || new Date().toISOString(),
           assigned_umpire_id: matchData.assigned_umpire_id || null,
-          leauge_group_id: matchData.league_group_id || null,
+          league_group_id: matchData?.league_group_id || null,
 
           // Initial scores
           status: 'pending',
